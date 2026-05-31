@@ -245,74 +245,43 @@ def extrair_dados_word(arquivo_bytes):
 
 def extrair_descricao_excel(arquivo_bytes):
     """
-    Lê a planilha 'Descricao' usando openpyxl diretamente para evitar
-    truncamento e problemas com células mescladas que o pandas não resolve.
+    Le a planilha 'Descricao' usando openpyxl diretamente.
 
-    Estrutura esperada (linhas do Excel, base 1):
-      Linha 1 → título
-      Linha 2 → cabeçalho das colunas
-      Linha 3 → CONTEXTUALIZAÇÃO  (coluna B)
-      Linha 4 → DESAFIO           (coluna B)
-      Linha 5 → RESULTADOS ESPERADOS (coluna B)
+    Estrutura real do Excel (base 1):
+      Linha 1 -> titulo da secao
+      Linha 2 -> cabecalho: 'Etapa da Estrategia' | 'Detalhamento...'
+      Linha 3 -> 'CONTEXTUALIZACAO:' | texto (coluna B)
+      Linha 4 -> 'DESAFIO:'          | texto (coluna B)
+      Linha 5 -> 'RESULTADOS ESPERADOS:' | texto (coluna B)
+
+    Os valores em B3, B4 e B5 comecam com '\t\n' (tab + newline)
+    inseridos pelo Excel como prefixo de formatacao -- sao removidos aqui.
     """
     try:
         from openpyxl import load_workbook
 
-        wb = load_workbook(
-            io.BytesIO(arquivo_bytes),
-            data_only=True,   # lê valores calculados, não fórmulas
-            read_only=True
-        )
+        wb = load_workbook(io.BytesIO(arquivo_bytes), data_only=True)
         ws = wb["Descricao"]
 
-        def _ler_celula(linha, coluna):
-            """Retorna o valor da célula desemesclando se necessário."""
-            val = ws.cell(row=linha, column=coluna).value
-            # células mescladas retornam None nas subordinadas;
-            # percorremos os merged_ranges para buscar a célula-mestre
-            if val is None:
-                # read_only=True não expõe merged_cells; reabrir sem read_only
-                return None
-            return str(val).strip() if val is not None else ""
+        def _limpar(valor):
+            if valor is None:
+                return ""
+            return str(valor).lstrip("\t\n\r ").strip()
 
-        contextualizacao = _ler_celula(3, 2)
-        desafio          = _ler_celula(4, 2)
-        resultados       = _ler_celula(5, 2)
+        contextualizacao = _limpar(ws.cell(row=3, column=2).value)
+        desafio          = _limpar(ws.cell(row=4, column=2).value)
+        resultados       = _limpar(ws.cell(row=5, column=2).value)
         wb.close()
 
-        # Se algum campo veio None (célula mesclada), reabrir sem read_only
-        if None in (contextualizacao, desafio, resultados):
-            wb2 = load_workbook(io.BytesIO(arquivo_bytes), data_only=True)
-            ws2 = wb2["Descricao"]
-
-            def _ler_com_merge(linha, coluna):
-                val = ws2.cell(row=linha, column=coluna).value
-                if val is not None:
-                    return str(val).strip()
-                # busca a célula-mestre do merged range
-                for mr in ws2.merged_cells.ranges:
-                    if (mr.min_row <= linha <= mr.max_row and
-                            mr.min_col <= coluna <= mr.max_col):
-                        return str(
-                            ws2.cell(mr.min_row, mr.min_col).value or ""
-                        ).strip()
-                return ""
-
-            contextualizacao = _ler_com_merge(3, 2)
-            desafio          = _ler_com_merge(4, 2)
-            resultados       = _ler_com_merge(5, 2)
-            wb2.close()
-
         return {
-            "contextualizacao": contextualizacao or "",
-            "desafio":          desafio          or "",
-            "resultados":       resultados        or ""
+            "contextualizacao": contextualizacao,
+            "desafio":          desafio,
+            "resultados":       resultados,
         }
 
     except Exception as e:
-        st.error(f"Erro ao ler descrição: {e}")
+        st.error(f"Erro ao ler descricao: {e}")
         return {"contextualizacao": "", "desafio": "", "resultados": ""}
-
 
 def ler_plano_excel(arquivo_bytes):
     try:
@@ -373,12 +342,24 @@ def gerar_fo(word_bytes, excel_bytes, form):
     idx = mapa.get(form["estrategia"], 1)
     tabela2.cell(1, idx).text = tabela2.cell(1, idx).text.replace("( )", "(X)")
 
-    # Tabela 3 — descrição
+    # Tabela 3 - Descricao da Estrategia de Aprendizagem Desafiadora
+    #
+    # Estrutura real da tabela no Word (inspecionada):
+    #   Linha 0 -> cabecalho "DESCRICAO DA ESTRATEGIA..."
+    #   Linha 1 -> rotulo "CONTEXTUALIZACAO:" | CAMPO a preencher
+    #   Linha 2 -> linha extra de CONTEXTUALIZACAO (celulas mescladas verticalmente)
+    #   Linha 3 -> rotulo "DESAFIO:"           | CAMPO a preencher
+    #   Linha 4 -> linha extra de DESAFIO (celulas mescladas verticalmente)
+    #   Linha 5 -> rotulo "RESULTADOS ESPERADOS:" | CAMPO a preencher
+    #   Linha 6 -> linha extra de RESULTADOS (celulas mescladas verticalmente)
+    #
+    # O python-docx expoe celulas mescladas como celulas independentes repetidas.
+    # O campo real de cada secao esta sempre na primeira linha do grupo (1, 3, 5).
     tabela3 = doc.tables[3]
     desc = extrair_descricao_excel(excel_bytes)
     escrever_celula(tabela3.cell(1, 1), desc["contextualizacao"])
-    escrever_celula(tabela3.cell(2, 1), desc["desafio"])
-    escrever_celula(tabela3.cell(3, 1), desc["resultados"])
+    escrever_celula(tabela3.cell(3, 1), desc["desafio"])
+    escrever_celula(tabela3.cell(5, 1), desc["resultados"])
 
     # Tabela 4 — plano semanal
     df = ler_plano_excel(excel_bytes)
