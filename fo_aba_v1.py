@@ -17,7 +17,7 @@ from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 # ============================================================
 
 st.set_page_config(
-    page_title="FO SENAI Studio",
+    page_title="FO SENAI Studio.",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="collapsed"
